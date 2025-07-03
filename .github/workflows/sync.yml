@@ -1,0 +1,56 @@
+name: 'Fusion-Repo Erstellen & Aktualisieren'
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */1 * * *'
+  repository_dispatch:
+    types: [monomono-sync-event]
+
+jobs:
+  sync-repos:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout fusion repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.ACCESS_TOKEN }}
+
+      # ==============================================================================
+      # ✨ HIER IST DER FIX ✨
+      # Wir fügen den Token wieder zur -URL hinzu, um den Klon der
+      # Sub-Repos explizit zu authentifizieren.
+      # ==============================================================================
+      - name: Clone sub-repos
+        run: |
+          REPOS_TO_SYNC=${{ inputs.repos || 'mannomannX/hi,mannomannX/hi2' }}
+          for repo in $(echo "$REPOS_TO_SYNC" | sed 's/,/ /g'); do
+            folder_name=$(basename $repo)
+            echo "-> Cloning $repo into $folder_name..."
+            git clone --depth 1 https://${{ secrets.ACCESS_TOKEN }}@github.com/$repo.git $folder_name && rm -rf $folder_name/.git
+          done
+
+      - name: Create README
+        run: |
+          REPOS_TO_SYNC=${{ inputs.repos || 'mannomannX/hi,mannomannX/hi2' }}
+          echo "# Fusion-Repo" > README.md
+          echo "" >> README.md
+          echo "This repository is an automatic fusion of the following projects:" >> README.md
+          for repo in $(echo "$REPOS_TO_SYNC" | sed 's/,/ /g'); do
+            echo "- [$repo](https://github.com/$repo)" >> README.md
+          done
+          echo "" >> README.md
+          echo "Last update: $(date)" >> README.md
+      - name: Commit and push changes
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add .
+          if ! git diff-index --quiet HEAD; then
+            git commit -m "Fusion-Repo: Sync sub-repos"
+            git pull --rebase
+            git push
+          else
+            echo "No new changes found in sub-repos."
+          fi
